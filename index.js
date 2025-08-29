@@ -69,26 +69,23 @@ app.post("/signup", async (req, res) => {
 
 
 // Login
-app.post("/signup", async (req, res) => {
-  const { username, password, email } = req.body;
+app.post("/login", async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!process.env.JWT_SECRET) {
+    return res.status(500).json({ error: "JWT_SECRET is not set" });
+  }
 
   try {
-    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
-    if (existingUser) {
-      return res.status(400).json({ error: "User already exists" });
-    }
+    const user = await User.findOne({ username, password });
+    if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
-    const newUser = new User({ username, password, email });
-    await newUser.save();
-
-    const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
-
-    res.json({ message: "Signup successful", token });
+    const token = sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
+    res.json({ message: "Login successful", token });
   } catch (err) {
     res.status(500).json({ error: "Something went wrong", details: err.message });
   }
 });
-    
 
 // Protected route
 app.get("/protected", (req, res) => {
