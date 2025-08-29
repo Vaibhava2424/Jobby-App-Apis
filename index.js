@@ -4,8 +4,8 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
-console.log("JWT_SECRET:", process.env.JWT_SECRET); // Should print your secret
 
+console.log("JWT_SECRET:", process.env.JWT_SECRET); // Should print your secret
 
 const { sign, verify } = jwt;
 
@@ -59,14 +59,13 @@ app.post("/signup", async (req, res) => {
     const newUser = new User({ username, password, email });
     await newUser.save();
 
-    const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
+    const token = sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
 
     res.json({ message: "Signup successful", token });
   } catch (err) {
     res.status(500).json({ error: "Something went wrong", details: err.message });
   }
 });
-
 
 // Login
 app.post("/login", async (req, res) => {
@@ -161,6 +160,16 @@ app.delete('/api/jobs/:id', async (req, res) => {
     if (!deletedJob) return res.status(404).json({ message: 'Job not found' });
 
     res.status(200).json({ message: 'Job deleted successfully', job: deletedJob });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------ Delete all jobs ------------------
+app.delete('/api/jobs', async (req, res) => {
+  try {
+    const result = await Job.deleteMany({});
+    res.status(200).json({ message: 'All jobs deleted successfully', deletedCount: result.deletedCount });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
