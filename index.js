@@ -3,6 +3,8 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
+
 dotenv.config();
 
 const { sign, verify } = jwt;
