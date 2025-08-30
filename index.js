@@ -23,8 +23,22 @@ const jobSchema = new mongoose.Schema({
   job_description: { type: String, required: true },
   location: { type: String, required: true },
   employment_type: { type: String, required: true },
-  package_per_annum: { type: String, required: true }
+  package_per_annum: { type: String, required: true },
+
+  // Extra fields for detailed view
+  company_website_url: { type: String, default: "" },
+  life_at_company: {
+    description: { type: String, default: "" },
+    image_url: { type: String, default: "" }
+  },
+  skills: [
+    {
+      name: { type: String, default: "" },
+      image_url: { type: String, default: "" }
+    }
+  ]
 }, { timestamps: true });
+
 
 const Job = mongoose.model('Job', jobSchema);
 
@@ -143,14 +157,35 @@ app.post('/api/jobs', async (req, res) => {
 });
 
 // Get all jobs
+// Get all jobs (overview)
 app.get('/api/jobs', async (req, res) => {
   try {
-    const jobs = await Job.find();
+    const jobs = await Job.find({}, {
+      title: 1,
+      company_logo_url: 1,
+      rating: 1,
+      job_description: 1,
+      location: 1,
+      employment_type: 1,
+      package_per_annum: 1
+    });
     res.json(jobs);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Get job details by ID
+app.get('/api/jobs/:id', async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // Delete job by ID
 app.delete('/api/jobs/:id', async (req, res) => {
