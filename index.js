@@ -5,8 +5,6 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
 
-console.log("JWT_SECRET:", process.env.JWT_SECRET); // Should print your secret
-
 const { sign, verify } = jwt;
 
 const app = express();
@@ -39,7 +37,6 @@ const jobSchema = new mongoose.Schema({
   ]
 }, { timestamps: true });
 
-
 const Job = mongoose.model('Job', jobSchema);
 
 // ------------------ User Schema ------------------
@@ -63,6 +60,10 @@ app.get('/', (req, res) => {
 // Signup
 app.post("/signup", async (req, res) => {
   const { username, password, email } = req.body;
+
+  if (!process.env.JWT_SECRET) {
+    return res.status(500).json({ error: "JWT_SECRET is not set" });
+  }
 
   try {
     const existingUser = await User.findOne({ $or: [{ username }, { email }] });
@@ -156,7 +157,6 @@ app.post('/api/jobs', async (req, res) => {
   }
 });
 
-// Get all jobs
 // Get all jobs (overview)
 app.get('/api/jobs', async (req, res) => {
   try {
@@ -186,7 +186,6 @@ app.get('/api/jobs/:id', async (req, res) => {
   }
 });
 
-
 // Delete job by ID
 app.delete('/api/jobs/:id', async (req, res) => {
   try {
@@ -200,7 +199,7 @@ app.delete('/api/jobs/:id', async (req, res) => {
   }
 });
 
-// ------------------ Delete all jobs ------------------
+// Delete all jobs
 app.delete('/api/jobs', async (req, res) => {
   try {
     const result = await Job.deleteMany({});
@@ -211,9 +210,17 @@ app.delete('/api/jobs', async (req, res) => {
 });
 
 // ------------------ Start Server ------------------
+if (!process.env.MONGO_URI) {
+  console.error('❌ MONGO_URI is not set in environment variables!');
+  process.exit(1);
+}
+
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
-    console.log('MongoDB Connected');
+    console.log('✅ MongoDB Connected');
     app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
   })
-  .catch(err => console.log('MongoDB connection error:', err.message));
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err.message);
+    process.exit(1); // crash app so Render shows error
+  });
