@@ -25,6 +25,7 @@ const jobSchema = new mongoose.Schema({
   employment_type: { type: String, required: true },
   package_per_annum: { type: String, required: true },
 
+  // Extra fields for detailed view
   company_website_url: { type: String, default: "" },
   life_at_company: {
     description: { type: String, default: "" },
@@ -50,6 +51,8 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 // ------------------ Routes ------------------
+
+// Test route
 app.get('/', (req, res) => {
   res.send('Jobby Backend is running!');
 });
@@ -70,8 +73,7 @@ app.post("/signup", async (req, res) => {
       return res.status(400).json({ error: "User already exists" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ username, password: hashedPassword, email });
+    const newUser = new User({ username, password, email });
     await newUser.save();
 
     const token = sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
@@ -91,11 +93,8 @@ app.post("/login", async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username, password });
     if (!user) return res.status(400).json({ error: "Invalid credentials" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
 
     const token = sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
     res.json({ message: "Login successful", token });
@@ -117,7 +116,32 @@ app.get("/protected", (req, res) => {
   }
 });
 
+// Get all users
+app.get("/all", async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: "Something went wrong", details: err.message });
+  }
+});
+
+// Delete user
+app.delete("/users/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedUser = await User.findByIdAndDelete(id);
+    if (!deletedUser) return res.status(404).json({ error: "User not found" });
+
+    res.json({ message: "User deleted successfully", user: deletedUser });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete user", details: err.message });
+  }
+});
+
 // ------------------ Job Routes ------------------
+
+// Add one or many jobs
 app.post('/api/jobs', async (req, res) => {
   try {
     const jobs = req.body;
@@ -135,6 +159,7 @@ app.post('/api/jobs', async (req, res) => {
   }
 });
 
+// Get all jobs (overview)
 app.get('/api/jobs', async (req, res) => {
   try {
     const jobs = await Job.find({}, {
@@ -152,6 +177,7 @@ app.get('/api/jobs', async (req, res) => {
   }
 });
 
+// Get job details by ID
 app.get('/api/jobs/:id', async (req, res) => {
   try {
     const job = await Job.findById(req.params.id);
@@ -162,6 +188,7 @@ app.get('/api/jobs/:id', async (req, res) => {
   }
 });
 
+// Delete job by ID
 app.delete('/api/jobs/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -174,6 +201,7 @@ app.delete('/api/jobs/:id', async (req, res) => {
   }
 });
 
+// Delete all jobs
 app.delete('/api/jobs', async (req, res) => {
   try {
     const result = await Job.deleteMany({});
@@ -182,10 +210,10 @@ app.delete('/api/jobs', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // -------------------- Feedback ---------------------
 let feedbacks = [];
 
+// Utility: get IST time
 const getISTTime = () => {
   const date = new Date();
   const utc = date.getTime() + date.getTimezoneOffset() * 60000;
@@ -193,7 +221,7 @@ const getISTTime = () => {
   return new Date(utc + istOffset).toISOString();
 };
 
-// Add feedback (requires JWT)
+// Add feedback (requires JWT token in headers)
 app.post("/api/feedback", async (req, res) => {
   const token = req.headers.authorization;
   if (!token) return res.status(401).json({ error: "Authorization token missing" });
@@ -208,9 +236,9 @@ app.post("/api/feedback", async (req, res) => {
 
     const feedback = {
       id: feedbacks.length + 1,
-      username: user.username,
+      username: user.username, // get username from logged-in user
       message: message.trim(),
-      createdAt: getISTTime()
+      createdAt: getISTTime() // store in IST
     };
 
     feedbacks.push(feedback);
@@ -220,6 +248,7 @@ app.post("/api/feedback", async (req, res) => {
   }
 });
 
+// Get all feedback
 app.get("/api/feedback", (req, res) => {
   const allFeedback = feedbacks.map(f => ({
     id: f.id,
@@ -230,6 +259,7 @@ app.get("/api/feedback", (req, res) => {
   res.json(allFeedback);
 });
 
+// Delete one feedback by ID
 app.delete("/api/feedback/:id", (req, res) => {
   const id = parseInt(req.params.id);
   const index = feedbacks.findIndex(f => f.id === id);
@@ -240,11 +270,13 @@ app.delete("/api/feedback/:id", (req, res) => {
   res.json({ message: "Feedback deleted successfully", feedback: deleted[0] });
 });
 
+// Delete all feedback
 app.delete("/api/feedback", (req, res) => {
   const count = feedbacks.length;
   feedbacks = [];
   res.json({ message: "All feedback deleted successfully", deletedCount: count });
 });
+
 
 // ------------------ Start Server ------------------
 if (!process.env.MONGO_URI) {
@@ -256,4 +288,8 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('✅ MongoDB Connected');
     app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
+  })
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err.message);
+    process.exit(1); // crash app so Render shows error
   });
