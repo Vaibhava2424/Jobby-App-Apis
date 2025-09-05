@@ -211,6 +211,57 @@ app.delete('/api/jobs', async (req, res) => {
   }
 });
 
+//--------------------Feedback---------------------
+let feedbacks = [];
+
+// ------------------ Feedback Routes (No Schema) ------------------
+
+// Add feedback
+app.post("/api/feedback", (req, res) => {
+  const { username, message, rating } = req.body;
+
+  if (!username || !message) {
+    return res.status(400).json({ error: "Username and message are required" });
+  }
+
+  const feedback = {
+    id: feedbacks.length + 1,
+    username,
+    message,
+    rating: rating || 5,
+    createdAt: new Date()
+  };
+
+  feedbacks.push(feedback);
+  res.status(201).json({ message: "Feedback submitted successfully", feedback });
+});
+
+// Get all feedback
+app.get("/api/feedback", (req, res) => {
+  res.json(feedbacks);
+});
+
+// Delete one feedback by ID
+app.delete("/api/feedback/:id", (req, res) => {
+  const id = parseInt(req.params.id);
+  const index = feedbacks.findIndex(f => f.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: "Feedback not found" });
+  }
+
+  const deleted = feedbacks.splice(index, 1);
+  res.json({ message: "Feedback deleted successfully", feedback: deleted[0] });
+});
+
+// Delete all feedback
+app.delete("/api/feedback", (req, res) => {
+  const count = feedbacks.length;
+  feedbacks = [];
+  res.json({ message: "All feedback deleted successfully", deletedCount: count });
+});
+
+
 // ------------------ Start Server ------------------
 if (!process.env.MONGO_URI) {
   console.error('❌ MONGO_URI is not set in environment variables!');
