@@ -24,8 +24,6 @@ const jobSchema = new mongoose.Schema({
   location: { type: String, required: true },
   employment_type: { type: String, required: true },
   package_per_annum: { type: String, required: true },
-
-  // Extra fields for detailed view
   company_website_url: { type: String, default: "" },
   life_at_company: {
     description: { type: String, default: "" },
@@ -51,14 +49,11 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 // ------------------ Routes ------------------
-
-// Test route
 app.get('/', (req, res) => {
   res.send('Jobby Backend is running!');
 });
 
 // ------------------ Auth Routes ------------------
-
 // Signup
 app.post("/signup", async (req, res) => {
   const { username, password, email } = req.body;
@@ -69,15 +64,12 @@ app.post("/signup", async (req, res) => {
 
   try {
     const existingUser = await User.findOne({ $or: [{ username }, { email }] });
-    if (existingUser) {
-      return res.status(400).json({ error: "User already exists" });
-    }
+    if (existingUser) return res.status(400).json({ error: "User already exists" });
 
     const newUser = new User({ username, password, email });
     await newUser.save();
 
     const token = sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
-
     res.json({ message: "Signup successful", token });
   } catch (err) {
     res.status(500).json({ error: "Something went wrong", details: err.message });
@@ -140,7 +132,6 @@ app.delete("/users/:id", async (req, res) => {
 });
 
 // ------------------ Job Routes ------------------
-
 // Add one or many jobs
 app.post('/api/jobs', async (req, res) => {
   try {
@@ -210,6 +201,7 @@ app.delete('/api/jobs', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // -------------------- Feedback ---------------------
 let feedbacks = [];
 
@@ -217,14 +209,15 @@ let feedbacks = [];
 const getISTTime = () => {
   const date = new Date();
   const utc = date.getTime() + date.getTimezoneOffset() * 60000;
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  return new Date(utc + istOffset).toISOString();
+  return new Date(utc + 5.5 * 60 * 60 * 1000).toISOString();
 };
 
 // Add feedback (requires JWT token in headers)
 app.post("/api/feedback", async (req, res) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Authorization token missing" });
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: "Authorization token missing" });
+
+  const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
 
   try {
     const decoded = verify(token, process.env.JWT_SECRET);
@@ -236,9 +229,9 @@ app.post("/api/feedback", async (req, res) => {
 
     const feedback = {
       id: feedbacks.length + 1,
-      username: user.username, // get username from logged-in user
+      username: user.username,
       message: message.trim(),
-      createdAt: getISTTime() // store in IST
+      createdAt: getISTTime()
     };
 
     feedbacks.push(feedback);
@@ -277,7 +270,6 @@ app.delete("/api/feedback", (req, res) => {
   res.json({ message: "All feedback deleted successfully", deletedCount: count });
 });
 
-
 // ------------------ Start Server ------------------
 if (!process.env.MONGO_URI) {
   console.error('❌ MONGO_URI is not set in environment variables!');
@@ -291,5 +283,5 @@ mongoose.connect(process.env.MONGO_URI)
   })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err.message);
-    process.exit(1); // crash app so Render shows error
+    process.exit(1);
   });
