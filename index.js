@@ -202,74 +202,102 @@ app.delete('/api/jobs', async (req, res) => {
   }
 });
 
-// -------------------- Feedback ---------------------
-let feedbacks = [];
+// ===================== FEEDBACK ROUTES =====================
 
-// Utility: get IST time
-const getISTTime = () => {
-  const date = new Date();
-  const utc = date.getTime() + date.getTimezoneOffset() * 60000;
-  return new Date(utc + 5.5 * 60 * 60 * 1000).toISOString();
-};
-
-// Add feedback (requires JWT token in headers)
-app.post("/api/feedback", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "Authorization token missing" });
-
-  const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
-
+// CREATE feedback (POST)
+app.post("/feedback", async (req, res) => {
   try {
-    const decoded = verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id);
-    if (!user) return res.status(404).json({ error: "User not found" });
+    const { username, message, ...rest } = req.body;
 
-    const { message } = req.body;
-    if (!message || message.trim() === "") return res.status(400).json({ error: "Message is required" });
+    if (!username || !message) {
+      return res.status(400).json({ error: "Username and message are required" });
+    }
 
-    const feedback = {
-      id: feedbacks.length + 1,
-      username: user.username,
-      message: message.trim(),
-      createdAt: getISTTime()
+    const feedbackDoc = {
+      username,
+      message,
+      ...rest,
+      createdAt: new Date(),
     };
 
-    feedbacks.push(feedback);
-    res.status(201).json({ message: "Feedback submitted successfully", feedback });
+    const result = await db.collection("feedback").insertOne(feedbackDoc);
+
+    res.status(201).json({
+      message: "Feedback submitted successfully",
+      insertedId: result.insertedId,
+    });
   } catch (err) {
-    res.status(401).json({ error: "Invalid or expired token" });
+    res.status(500).json({ error: "Failed to submit feedback", details: err.message });
   }
 });
 
-// Get all feedback
-app.get("/api/feedback", (req, res) => {
-  const allFeedback = feedbacks.map(f => ({
-    id: f.id,
-    username: f.username,
-    message: f.message,
-    createdAt: f.createdAt
-  }));
-  res.json(allFeedback);
+
+// READ all feedback (GET)
+app.get("/feedback", async (req, res) => {
+  try {
+    const feedbacks = await db.collection("feedback").find().toArray();
+    res.json(feedbacks);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch feedback", details: err.message });
+  }
 });
 
-// Delete one feedback by ID
-app.delete("/api/feedback/:id", (req, res) => {
-  const id = parseInt(req.params.id);
-  const index = feedbacks.findIndex(f => f.id === id);
+// READ single feedback by ID (GET)
+import { ObjectId } from "mongodb";
 
-  if (index === -1) return res.status(404).json({ error: "Feedback not found" });
+app.get("/feedback/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const feedback = await db.collection("feedback").findOne({ _id: new ObjectId(id) });
 
-  const deleted = feedbacks.splice(index, 1);
-  res.json({ message: "Feedback deleted successfully", feedback: deleted[0] });
+    if (!feedback) {
+      return res.status(404).json({ error: "Feedback not found" });
+    }
+
+    res.json(feedback);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch feedback", details: err.message });
+  }
 });
 
-// Delete all feedback
-app.delete("/api/feedback", (req, res) => {
-  const count = feedbacks.length;
-  feedbacks = [];
-  res.json({ message: "All feedback deleted successfully", deletedCount: count });
+
+// UPDATE feedback by ID (PUT)
+app.put("/feedback/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    const result = await db.collection("feedback").updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { ...updates, updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Feedback not found" });
+    }
+
+    res.json({ message: "Feedback updated successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update feedback", details: err.message });
+  }
 });
 
+
+// DELETE feedback by ID (DELETE)
+app.delete("/feedback/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.collection("feedback").deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: "Feedback not found" });
+    }
+
+    res.json({ message: "Feedback deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete feedback", details: err.message });
+  }
+});
 // ------------------ Start Server ------------------
 if (!process.env.MONGO_URI) {
   console.error('❌ MONGO_URI is not set in environment variables!');
