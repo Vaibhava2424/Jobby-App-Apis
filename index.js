@@ -25,7 +25,6 @@ const jobSchema = new mongoose.Schema({
   employment_type: { type: String, required: true },
   package_per_annum: { type: String, required: true },
 
-  // Extra fields for detailed view
   company_website_url: { type: String, default: "" },
   life_at_company: {
     description: { type: String, default: "" },
@@ -51,8 +50,6 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 // ------------------ Routes ------------------
-
-// Test route
 app.get('/', (req, res) => {
   res.send('Jobby Backend is running!');
 });
@@ -211,25 +208,31 @@ app.delete('/api/jobs', async (req, res) => {
   }
 });
 
-//--------------------Feedback---------------------
+// -------------------- Feedback ---------------------
 let feedbacks = [];
 
-// ------------------ Feedback Routes (No Schema) ------------------
+// Utility: get IST time
+const getISTTime = () => {
+  const date = new Date();
+  const utc = date.getTime() + date.getTimezoneOffset() * 60000;
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istDate = new Date(utc + istOffset);
+  return istDate.toISOString();
+};
 
 // Add feedback
 app.post("/api/feedback", (req, res) => {
-  const { username, message, rating } = req.body;
+  const { message } = req.body;
 
-  if (!username || !message) {
-    return res.status(400).json({ error: "Username and message are required" });
+  if (!message || message.trim() === "") {
+    return res.status(400).json({ error: "Message is required" });
   }
 
   const feedback = {
     id: feedbacks.length + 1,
-    username,
-    message,
-    rating: rating || 5,
-    createdAt: new Date()
+    username: "Anonymous",
+    message: message.trim(),
+    createdAt: getISTTime()
   };
 
   feedbacks.push(feedback);
@@ -238,7 +241,13 @@ app.post("/api/feedback", (req, res) => {
 
 // Get all feedback
 app.get("/api/feedback", (req, res) => {
-  res.json(feedbacks);
+  const allFeedback = feedbacks.map(f => ({
+    id: f.id,
+    username: f.username,
+    message: f.message,
+    createdAt: f.createdAt
+  }));
+  res.json(allFeedback);
 });
 
 // Delete one feedback by ID
@@ -246,9 +255,7 @@ app.delete("/api/feedback/:id", (req, res) => {
   const id = parseInt(req.params.id);
   const index = feedbacks.findIndex(f => f.id === id);
 
-  if (index === -1) {
-    return res.status(404).json({ error: "Feedback not found" });
-  }
+  if (index === -1) return res.status(404).json({ error: "Feedback not found" });
 
   const deleted = feedbacks.splice(index, 1);
   res.json({ message: "Feedback deleted successfully", feedback: deleted[0] });
@@ -261,7 +268,6 @@ app.delete("/api/feedback", (req, res) => {
   res.json({ message: "All feedback deleted successfully", deletedCount: count });
 });
 
-
 // ------------------ Start Server ------------------
 if (!process.env.MONGO_URI) {
   console.error('❌ MONGO_URI is not set in environment variables!');
@@ -273,7 +279,4 @@ mongoose.connect(process.env.MONGO_URI)
     console.log('✅ MongoDB Connected');
     app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
   })
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err.message);
-    process.exit(1); // crash app so Render shows error
-  });
+ 
