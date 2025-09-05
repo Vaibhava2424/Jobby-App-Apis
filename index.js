@@ -202,7 +202,17 @@ app.delete('/api/jobs', async (req, res) => {
   }
 });
 
-// ===================== FEEDBACK ROUTES =====================
+// ------------------ Feedback Schema ------------------
+const feedbackSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  message: { type: String, required: true },
+  rating: { type: Number, default: 0 },
+  email: { type: String, default: "" },
+}, { timestamps: true });
+
+const Feedback = mongoose.model("Feedback", feedbackSchema);
+
+// ------------------ Feedback Routes ------------------
 
 // CREATE feedback (POST)
 app.post("/feedback", async (req, res) => {
@@ -213,29 +223,22 @@ app.post("/feedback", async (req, res) => {
       return res.status(400).json({ error: "Username and message are required" });
     }
 
-    const feedbackDoc = {
-      username,
-      message,
-      ...rest,
-      createdAt: new Date(),
-    };
-
-    const result = await db.collection("feedback").insertOne(feedbackDoc);
+    const feedback = new Feedback({ username, message, ...rest });
+    await feedback.save();
 
     res.status(201).json({
       message: "Feedback submitted successfully",
-      insertedId: result.insertedId,
+      feedback,
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to submit feedback", details: err.message });
   }
 });
 
-
 // READ all feedback (GET)
 app.get("/feedback", async (req, res) => {
   try {
-    const feedbacks = await db.collection("feedback").find().toArray();
+    const feedbacks = await Feedback.find();
     res.json(feedbacks);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch feedback", details: err.message });
@@ -243,61 +246,52 @@ app.get("/feedback", async (req, res) => {
 });
 
 // READ single feedback by ID (GET)
-import { ObjectId } from "mongodb";
-
 app.get("/feedback/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    const feedback = await db.collection("feedback").findOne({ _id: new ObjectId(id) });
-
+    const feedback = await Feedback.findById(req.params.id);
     if (!feedback) {
       return res.status(404).json({ error: "Feedback not found" });
     }
-
     res.json(feedback);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch feedback", details: err.message });
   }
 });
 
-
 // UPDATE feedback by ID (PUT)
 app.put("/feedback/:id", async (req, res) => {
   try {
-    const { id } = req.params;
     const updates = req.body;
 
-    const result = await db.collection("feedback").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { ...updates, updatedAt: new Date() } }
+    const feedback = await Feedback.findByIdAndUpdate(
+      req.params.id,
+      { ...updates },
+      { new: true }
     );
 
-    if (result.matchedCount === 0) {
+    if (!feedback) {
       return res.status(404).json({ error: "Feedback not found" });
     }
 
-    res.json({ message: "Feedback updated successfully" });
+    res.json({ message: "Feedback updated successfully", feedback });
   } catch (err) {
     res.status(500).json({ error: "Failed to update feedback", details: err.message });
   }
 });
 
-
 // DELETE feedback by ID (DELETE)
 app.delete("/feedback/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    const result = await db.collection("feedback").deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
+    const feedback = await Feedback.findByIdAndDelete(req.params.id);
+    if (!feedback) {
       return res.status(404).json({ error: "Feedback not found" });
     }
-
-    res.json({ message: "Feedback deleted successfully" });
+    res.json({ message: "Feedback deleted successfully", feedback });
   } catch (err) {
     res.status(500).json({ error: "Failed to delete feedback", details: err.message });
   }
 });
+
 // ------------------ Start Server ------------------
 if (!process.env.MONGO_URI) {
   console.error('❌ MONGO_URI is not set in environment variables!');
