@@ -12,9 +12,10 @@ const app = express();
 
 // ---------- CORS ----------
 app.use(cors({
-  origin: "http://localhost:3000", // frontend origin
+  origin: ["http://localhost:3000", "https://jobby-app-chi-five.vercel.app"],
   credentials: true
 }));
+
 app.use(express.json());
 
 const PORT = process.env.PORT || 5001;
@@ -61,19 +62,24 @@ const feedbackSchema = new mongoose.Schema({
 
 const Feedback = mongoose.model('Feedback', feedbackSchema);
 
-// ------------------ Middleware ------------------
 const authenticate = (req, res, next) => {
-  const token = req.headers["authorization"];
+  const authHeader = req.headers["authorization"];
+  if (!authHeader) return res.status(403).json({ error: "Token missing" });
+
+  // Check if it starts with 'Bearer ' and extract token
+  const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
+
   if (!token) return res.status(403).json({ error: "Token missing" });
 
   try {
-    const decoded = verify(token.split(' ')[1], process.env.JWT_SECRET);
+    const decoded = verify(token, process.env.JWT_SECRET);
     req.userId = decoded.id;
     next();
   } catch (err) {
     return res.status(401).json({ error: "Invalid token" });
   }
 };
+
 
 // ------------------ Routes ------------------
 app.get('/', (req, res) => {
