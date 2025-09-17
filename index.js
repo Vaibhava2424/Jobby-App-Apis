@@ -8,12 +8,25 @@ import bcrypt from 'bcryptjs';
 dotenv.config();
 
 const { sign, verify } = jwt;
-
 const app = express();
-app.use(cors());
+
+// ---------- CORS ----------
+app.use(cors({
+  origin: "http://localhost:3000", // frontend origin
+  credentials: true
+}));
 app.use(express.json());
 
 const PORT = process.env.PORT || 5001;
+
+// ------------------ User Schema ------------------
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  email: { type: String, required: true, unique: true }
+}, { timestamps: true });
+
+const User = mongoose.model('User', userSchema);
 
 // ------------------ Job Schema ------------------
 const jobSchema = new mongoose.Schema({
@@ -39,14 +52,28 @@ const jobSchema = new mongoose.Schema({
 
 const Job = mongoose.model('Job', jobSchema);
 
-// ------------------ User Schema ------------------
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  email: { type: String, required: true, unique: true }
+// ------------------ Feedback Schema ------------------
+const feedbackSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  email: { type: String },
+  message: { type: String, required: true }
 }, { timestamps: true });
 
-const User = mongoose.model('User', userSchema);
+const Feedback = mongoose.model('Feedback', feedbackSchema);
+
+// ------------------ Middleware ------------------
+const authenticate = (req, res, next) => {
+  const token = req.headers["authorization"];
+  if (!token) return res.status(403).json({ error: "Token missing" });
+
+  try {
+    const decoded = verify(token.split(' ')[1], process.env.JWT_SECRET);
+    req.userId = decoded.id;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+};
 
 // ------------------ Routes ------------------
 app.get('/', (req, res) => {
@@ -58,18 +85,17 @@ app.get('/', (req, res) => {
 app.post("/signup", async (req, res) => {
   const { username, password, email } = req.body;
 
-  if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ error: "JWT_SECRET is not set" });
-  }
+  if (!process.env.JWT_SECRET) return res.status(500).json({ error: "JWT_SECRET is not set" });
 
   try {
     const existingUser = await User.findOne({ $or: [{ username }, { email }] });
     if (existingUser) return res.status(400).json({ error: "User already exists" });
 
-    const newUser = new User({ username, password, email });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ username, password: hashedPassword, email });
     await newUser.save();
 
-    const token = sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
+    const token = sign({ id: newUser._id, username, email }, process.env.JWT_SECRET, { expiresIn: "30d" });
     res.json({ message: "Signup successful", token });
   } catch (err) {
     res.status(500).json({ error: "Something went wrong", details: err.message });
@@ -80,63 +106,47 @@ app.post("/signup", async (req, res) => {
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
 
-  if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ error: "JWT_SECRET is not set" });
-  }
+  if (!process.env.JWT_SECRET) return res.status(500).json({ error: "JWT_SECRET is not set" });
 
   try {
-    const user = await User.findOne({ username, password });
+    const user = await User.findOne({ username });
     if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
-    const token = sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
+
+    const token = sign({ id: user._id, username: user.username, email: user.email }, process.env.JWT_SECRET, { expiresIn: "30d" });
     res.json({ message: "Login successful", token });
   } catch (err) {
     res.status(500).json({ error: "Something went wrong", details: err.message });
   }
 });
 
-// Protected route
-app.get("/protected", (req, res) => {
-  const token = req.headers["authorization"];
-  if (!token) return res.status(403).json({ error: "Token missing" });
-
+// Protected route to get logged-in user info
+app.get('/protected', authenticate, async (req, res) => {
   try {
-    const decoded = verify(token, process.env.JWT_SECRET);
-    res.json({ message: "Protected data", userId: decoded.id });
+    const user = await User.findById(req.userId, { password: 0 }); // exclude password
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
   } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+    res.status(500).json({ error: err.message });
   }
 });
-
-// Get all users
-app.get("/all", async (req, res) => {
+// Get all users (safe version: exclude passwords)
+app.get('/api/users', authenticate, async (req, res) => {
   try {
-    const users = await User.find();
+    const users = await User.find({}, { password: 0 }); // exclude passwords
     res.json(users);
   } catch (err) {
-    res.status(500).json({ error: "Something went wrong", details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Delete user
-app.delete("/users/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const deletedUser = await User.findByIdAndDelete(id);
-    if (!deletedUser) return res.status(404).json({ error: "User not found" });
-
-    res.json({ message: "User deleted successfully", user: deletedUser });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to delete user", details: err.message });
-  }
-});
 
 // ------------------ Job Routes ------------------
-// Add one or many jobs
 app.post('/api/jobs', async (req, res) => {
   try {
     const jobs = req.body;
-
     if (Array.isArray(jobs)) {
       const createdJobs = await Job.insertMany(jobs);
       return res.status(201).json({ message: 'Jobs created successfully', jobs: createdJobs });
@@ -150,7 +160,6 @@ app.post('/api/jobs', async (req, res) => {
   }
 });
 
-// Get all jobs (overview)
 app.get('/api/jobs', async (req, res) => {
   try {
     const jobs = await Job.find({}, {
@@ -168,7 +177,6 @@ app.get('/api/jobs', async (req, res) => {
   }
 });
 
-// Get job details by ID
 app.get('/api/jobs/:id', async (req, res) => {
   try {
     const job = await Job.findById(req.params.id);
@@ -179,20 +187,16 @@ app.get('/api/jobs/:id', async (req, res) => {
   }
 });
 
-// Delete job by ID
 app.delete('/api/jobs/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const deletedJob = await Job.findByIdAndDelete(id);
+    const deletedJob = await Job.findByIdAndDelete(req.params.id);
     if (!deletedJob) return res.status(404).json({ message: 'Job not found' });
-
     res.status(200).json({ message: 'Job deleted successfully', job: deletedJob });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Delete all jobs
 app.delete('/api/jobs', async (req, res) => {
   try {
     const result = await Job.deleteMany({});
@@ -202,83 +206,51 @@ app.delete('/api/jobs', async (req, res) => {
   }
 });
 
+// ------------------ Feedback Routes ------------------
+// Add feedback
+app.post('/api/feedback', async (req, res) => {
+  const { username, email, message } = req.body;
+  if (!username || !message) return res.status(400).json({ error: "Username and message are required" });
 
-// Feedback Schema
-const feedbackSchema = new mongoose.Schema({
-  username: { type: String, required: true },
-  message: { type: String, required: true },
-  rating: { type: Number, default: 0 },
-  email: { type: String, default: "" },
-}, { timestamps: true });
-
-const Feedback = mongoose.model('Feedback', feedbackSchema);
-
-// ------------------ Feedback CRUD ------------------
-
-// CREATE feedback
-app.post('/feedback', async (req, res) => {
   try {
-    const { username, message, ...rest } = req.body;
-
-    if (!username || !message) {
-      return res.status(400).json({ error: 'Username and message are required' });
-    }
-
-    const feedback = new Feedback({ username, message, ...rest });
+    const feedback = new Feedback({ username, email, message });
     await feedback.save();
-
-    res.status(201).json({ message: 'Feedback submitted successfully', feedback });
+    res.status(201).json({ message: "Feedback submitted successfully", feedback });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to submit feedback', details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// READ all feedback
-app.get('/feedback', async (req, res) => {
+// Get all feedbacks
+app.get('/api/feedback', async (req, res) => {
   try {
-    const feedbacks = await Feedback.find().sort({ createdAt: -1 }); // latest first
+    const feedbacks = await Feedback.find({});
     res.json(feedbacks);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch feedback', details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// READ single feedback by ID
-app.get('/feedback/:id', async (req, res) => {
+// Delete feedback by ID
+app.delete('/api/feedback/:id', async (req, res) => {
   try {
-    const feedback = await Feedback.findById(req.params.id);
-    if (!feedback) return res.status(404).json({ error: 'Feedback not found' });
-    res.json(feedback);
+    const deletedFeedback = await Feedback.findByIdAndDelete(req.params.id);
+    if (!deletedFeedback) return res.status(404).json({ message: 'Feedback not found' });
+    res.status(200).json({ message: 'Feedback deleted successfully', feedback: deletedFeedback });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch feedback', details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// UPDATE feedback by ID
-app.put('/feedback/:id', async (req, res) => {
+// Delete all feedbacks
+app.delete('/api/feedback', async (req, res) => {
   try {
-    const updates = req.body;
-    const feedback = await Feedback.findByIdAndUpdate(req.params.id, updates, { new: true });
-
-    if (!feedback) return res.status(404).json({ error: 'Feedback not found' });
-    res.json({ message: 'Feedback updated successfully', feedback });
+    const result = await Feedback.deleteMany({});
+    res.status(200).json({ message: 'All feedbacks deleted successfully', deletedCount: result.deletedCount });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update feedback', details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
-
-// DELETE feedback by ID
-app.delete('/feedback/:id', async (req, res) => {
-  try {
-    const feedback = await Feedback.findByIdAndDelete(req.params.id);
-    if (!feedback) return res.status(404).json({ error: 'Feedback not found' });
-    res.json({ message: 'Feedback deleted successfully', feedback });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete feedback', details: err.message });
-  }
-});
-
-
 
 // ------------------ Start Server ------------------
 if (!process.env.MONGO_URI) {
